@@ -25,7 +25,7 @@ The proxy runs locally (or in your infrastructure) and speaks the standard OpenA
 ## Quick Start
 
 ```bash
-docker run -p 8443:443 -p 80:80 e2ee-proxy
+docker run -p 8443:443 parachutes/e2ee-proxy:latest
 ```
 
 The embedded TLS certificate is valid for `e2ee-local-proxy.chutes.dev`, which resolves to `127.0.0.1`. Use this hostname to avoid certificate errors:
@@ -82,7 +82,7 @@ The proxy supports three TLS certificate modes, selected via environment variabl
 Certs are loaded at runtime from the protected `.so`. No files on disk. This is the production mode.
 
 ```bash
-docker run -p 443:443 -p 80:80 e2ee-proxy
+docker run -p 8443:443 parachutes/e2ee-proxy:latest
 ```
 
 ### 2. Self-Signed (Local Development)
@@ -90,16 +90,16 @@ docker run -p 443:443 -p 80:80 e2ee-proxy
 Generates a certificate at startup. Useful for local development and testing.
 
 ```bash
-docker run -p 443:443 -p 80:80 \
+docker run -p 8443:443 \
   -e TLS_SELF_SIGNED=true \
   -e TLS_DOMAIN=myproxy.local \
-  e2ee-proxy
+  parachutes/e2ee-proxy:latest
 ```
 
 The container prints instructions for trusting the cert. To extract it:
 
 ```bash
-docker cp $(docker ps -qf ancestor=e2ee-proxy):/tmp/ssl.crt ./ssl.crt
+docker cp $(docker ps -qf ancestor=parachutes/e2ee-proxy):/tmp/ssl.crt ./ssl.crt
 
 # macOS
 sudo security add-trusted-cert -d -r trustRoot \
@@ -120,7 +120,7 @@ Import-Certificate -FilePath ssl.crt -CertStoreLocation Cert:\LocalMachine\Root
 Bring your own cert and key files via volume mounts.
 
 ```bash
-docker run -p 443:443 -p 80:80 \
+docker run -p 8443:443 \
   -v /path/to/cert.pem:/certs/cert.pem:ro \
   -v /path/to/key.pem:/certs/key.pem:ro \
   -v /path/to/ca.pem:/certs/ca.pem:ro \
@@ -128,7 +128,7 @@ docker run -p 443:443 -p 80:80 \
   -e TLS_KEY=/certs/key.pem \
   -e TLS_CA=/certs/ca.pem \
   -e TLS_DOMAIN=mydomain.com \
-  e2ee-proxy
+  parachutes/e2ee-proxy:latest
 ```
 
 `TLS_CA` is optional — if provided, it's appended to the cert chain.
@@ -152,6 +152,24 @@ If multiple variables are set, the first match wins:
 2. `TLS_SELF_SIGNED=true` → self-signed mode
 3. Neither → embedded mode
 
+## Confidential Compute Requirement
+
+By default, the proxy **rejects requests to models not running in a Trusted Execution Environment (TEE)**. E2EE only guarantees privacy when the GPU instance runs inside confidential compute — otherwise an operator could theoretically dump memory and read decrypted payloads.
+
+Models with `confidential_compute: true` in `/v1/models` (typically suffixed with `-TEE`) are allowed. Non-confidential models return an error:
+
+```
+model 'Qwen/Qwen3-32B' is not running in confidential compute (TEE).
+E2EE requires confidential compute to guarantee privacy.
+Set ALLOW_NON_CONFIDENTIAL=true to override.
+```
+
+To bypass this check (e.g. for testing):
+
+```bash
+docker run -p 8443:443 -e ALLOW_NON_CONFIDENTIAL=true parachutes/e2ee-proxy:latest
+```
+
 ## API Endpoints
 
 The proxy exposes multiple API formats — requests to `/v1/messages` and `/v1/responses` are translated to chat completions before encryption:
@@ -168,24 +186,6 @@ The proxy exposes multiple API formats — requests to `/v1/messages` and `/v1/r
 | `OPTIONS *` | CORS preflight (204) |
 
 All other paths return 404.
-
-## Confidential Compute Requirement
-
-By default, the proxy **rejects requests to models not running in a Trusted Execution Environment (TEE)**. E2EE only guarantees privacy when the GPU instance runs inside confidential compute — otherwise an operator could theoretically dump memory and read decrypted payloads.
-
-Models with `confidential_compute: true` in `/v1/models` (typically suffixed with `-TEE`) are allowed. Non-confidential models return an error:
-
-```
-model 'Qwen/Qwen3-32B' is not running in confidential compute (TEE).
-E2EE requires confidential compute to guarantee privacy.
-Set ALLOW_NON_CONFIDENTIAL=true to override.
-```
-
-To bypass this check (e.g. for testing):
-
-```bash
-docker run -p 8443:443 -e ALLOW_NON_CONFIDENTIAL=true e2ee-proxy
-```
 
 ## E2EE Protocol
 
