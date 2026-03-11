@@ -1,0 +1,24 @@
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.venv/
+venv/
+.env
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+
+# Build artifacts - NEVER commit these
+native/embedded_certs.h
+certs/
+*.pem
+*.key
+*.crt
+*.der
+libe2ee_proxy*.so
+xvmp/
