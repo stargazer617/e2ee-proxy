@@ -99,11 +99,14 @@ function _M.resolve_chute_id(model, api_key)
         return model
     end
 
+    -- Before lookup, strip suffix from model name
+    local base_model = model:match("^([^:]+)")
+
     local now = ngx.now()
 
     -- Check cache
     if model_map and now < model_map_expires then
-        local entry = model_map[model]
+        local entry = model_map[base_model]
         if entry then
             return check_confidential(model, entry)
         end
@@ -114,7 +117,7 @@ function _M.resolve_chute_id(model, api_key)
     if not map then
         -- If we have a stale cache, try it
         if model_map then
-            local entry = model_map[model]
+            local entry = model_map[base_model]
             if entry then
                 return check_confidential(model, entry)
             end
@@ -125,7 +128,7 @@ function _M.resolve_chute_id(model, api_key)
     model_map = map
     model_map_expires = now + MODEL_MAP_TTL
 
-    local entry = map[model]
+    local entry = map[base_model]
     return check_confidential(model, entry)
 end
 
