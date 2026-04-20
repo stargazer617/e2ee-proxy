@@ -345,6 +345,76 @@ function _M.handle()
         return _M.send_error(400, "missing 'model' field")
     end
 
+    -- Thinking mode handling
+    local enable_thinking = false
+    local think_header = ngx.req.get_headers()["X-Enable-Thinking"]
+    if think_header and think_header:lower() == "true" then
+        enable_thinking = true
+    end
+    if model:sub(-#":THINKING") == ":THINKING" then
+        payload.model = payload.model:sub(1, #payload.model - #":THINKING")
+        model = payload.model
+        enable_thinking = true
+    end
+    if enable_thinking then
+        if not payload.chat_template_kwargs then
+            payload.chat_template_kwargs = {}
+        end
+        payload.chat_template_kwargs.thinking = true
+        payload.chat_template_kwargs.enable_thinking = true
+    end
+
+    -- Normalize the chat template kwargs thinking keys since there are two...
+    if payload.chat_template_kwargs then
+        if payload.chat_template_kwargs.thinking ~= nil
+           and payload.chat_template_kwargs.enable_thinking == nil then
+            payload.chat_template_kwargs.enable_thinking = payload.chat_template_kwargs.thinking
+        end
+        if payload.chat_template_kwargs.enable_thinking ~= nil
+           and payload.chat_template_kwargs.thinking == nil then
+            payload.chat_template_kwargs.thinking = payload.chat_template_kwargs.enable_thinking
+        end
+        if payload.chat_template_kwargs.thinking == nil then
+            local thinking_prefixes = {
+                "deepseek-ai/DeepSeek-V3.2-Speciale",
+                "zai-org/GLM-4.7",
+                "moonshotai/Kimi-K2.5",
+            }
+            local is_thinking_model = false
+            for _, prefix in ipairs(thinking_prefixes) do
+                if model:sub(1, #prefix) == prefix then
+                    is_thinking_model = true
+                    break
+                end
+            end
+            if is_thinking_model then
+                payload.chat_template_kwargs.thinking = true
+                payload.chat_template_kwargs.enable_thinking = true
+            end
+        end
+
+        -- Fix default MiMo-V2-Flash thinking.
+        if payload.chat_template_kwargs.thinking == nil
+           and model:sub(1, #"XiaomiMiMo/MiMo-V2-Flash") == "XiaomiMiMo/MiMo-V2-Flash" then
+            payload.chat_template_kwargs.thinking = false
+            payload.chat_template_kwargs.enable_thinking = false
+        end
+
+    elseif model == "deepseek-ai/DeepSeek-V3.2-Speciale"
+        or model == "deepseek-ai/DeepSeek-V3.2-Speciale-TEE"
+        or model == "zai-org/GLM-4.7"
+        or model == "zai-org/GLM-4.7-TEE"
+        or model == "moonshotai/Kimi-K2.5"
+        or model == "moonshotai/Kimi-K2.5-TEE" then
+        payload.chat_template_kwargs = { thinking = true, enable_thinking = true }
+
+    elseif model == "XiaomiMiMo/MiMo-V2-Flash-TEE" then
+        payload.chat_template_kwargs = { thinking = false, enable_thinking = false }
+    end
+
+    -- Re-encode body with any chat_template_kwargs modifications
+    body = cjson.encode(payload)
+
     local is_streaming = (payload.stream == true)
     local original_path = ngx.var.uri
 
