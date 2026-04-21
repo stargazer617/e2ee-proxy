@@ -54,9 +54,9 @@ function _M.handle_thinking(oai_request)
     if think_header and think_header:lower() == "true" then
         enable_thinking = true
     end
-    if model:sub(-#":THINKING") == ":THINKING" then
-        oai_request.model = oai_request.model:sub(1, #oai_request.model - #":THINKING")
-        model = oai_request.model
+    if model:match(":THINKING$") then
+        model = model:sub(1, -#":THINKING" - 1)
+        oai_request.model = model
         enable_thinking = true
     end
     if enable_thinking then
