@@ -17,6 +17,31 @@ local API_BASE = "https://api.chutes.ai"
 
 local _M = {}
 
+-- Per-model thinking defaults. Mirrors chutes-api's invocation router
+-- (api/invocation/router.py). The /v1/models endpoint exposes a
+-- "reasoning" capability flag in supported_features but not the
+-- per-model default value, so these stay duplicated until the API
+-- grows a dedicated attribute.
+local THINKING_DEFAULT_ON_PREFIXES = {
+    "deepseek-ai/DeepSeek-V3.2-Speciale",
+    "zai-org/GLM-4.7",
+    "moonshotai/Kimi-K2.5",
+}
+local THINKING_DEFAULT_ON_EXACT = {
+    ["deepseek-ai/DeepSeek-V3.2-Speciale"] = true,
+    ["deepseek-ai/DeepSeek-V3.2-Speciale-TEE"] = true,
+    ["zai-org/GLM-4.7"] = true,
+    ["zai-org/GLM-4.7-TEE"] = true,
+    ["moonshotai/Kimi-K2.5"] = true,
+    ["moonshotai/Kimi-K2.5-TEE"] = true,
+}
+local MIMO_PREFIX = "XiaomiMiMo/MiMo-V2-Flash"
+local MIMO_EXACT_TEE = "XiaomiMiMo/MiMo-V2-Flash-TEE"
+
+local function starts_with(s, prefix)
+    return s:sub(1, #prefix) == prefix
+end
+
 --- Extract API key from Authorization header or x-api-key
 function _M.get_api_key()
     local headers = ngx.req.get_headers()
@@ -38,6 +63,68 @@ function _M.get_api_key()
         key = auth
     end
     return key
+end
+
+--- Handle thinking mode for OpenAI format requests
+-- Takes an OpenAI request table, applies thinking logic, and returns the modified table
+-- Also strips :THINKING suffix from model name and returns the model name
+function _M.handle_thinking(oai_request)
+    if not oai_request or not oai_request.model then
+        return oai_request, nil
+    end
+
+    local model = oai_request.model
+    local enable_thinking = false
+    local think_header = ngx.req.get_headers()["X-Enable-Thinking"]
+    if think_header and think_header:lower() == "true" then
+        enable_thinking = true
+    end
+    if model:match(":THINKING$") then
+        model = model:sub(1, -#":THINKING" - 1)
+        oai_request.model = model
+        enable_thinking = true
+    end
+    if enable_thinking then
+        if not oai_request.chat_template_kwargs then
+            oai_request.chat_template_kwargs = {}
+        end
+        oai_request.chat_template_kwargs.thinking = true
+        oai_request.chat_template_kwargs.enable_thinking = true
+    end
+
+    local kwargs = oai_request.chat_template_kwargs
+    if kwargs then
+        -- Normalize the two spellings so downstream sees both.
+        if kwargs.thinking ~= nil and kwargs.enable_thinking == nil then
+            kwargs.enable_thinking = kwargs.thinking
+        end
+        if kwargs.enable_thinking ~= nil and kwargs.thinking == nil then
+            kwargs.thinking = kwargs.enable_thinking
+        end
+
+        if kwargs.thinking == nil then
+            for _, prefix in ipairs(THINKING_DEFAULT_ON_PREFIXES) do
+                if starts_with(model, prefix) then
+                    kwargs.thinking = true
+                    kwargs.enable_thinking = true
+                    break
+                end
+            end
+        end
+
+        if kwargs.thinking == nil and starts_with(model, MIMO_PREFIX) then
+            kwargs.thinking = false
+            kwargs.enable_thinking = false
+        end
+    else
+        if THINKING_DEFAULT_ON_EXACT[model] then
+            oai_request.chat_template_kwargs = { thinking = true, enable_thinking = true }
+        elseif model == MIMO_EXACT_TEE then
+            oai_request.chat_template_kwargs = { thinking = false, enable_thinking = false }
+        end
+    end
+
+    return oai_request, model
 end
 
 --- Send error response
@@ -344,6 +431,12 @@ function _M.handle()
     if not model then
         return _M.send_error(400, "missing 'model' field")
     end
+
+    -- Thinking mode handling
+    payload, model = _M.handle_thinking(payload)
+
+    -- Re-encode body with any chat_template_kwargs modifications
+    body = cjson.encode(payload)
 
     local is_streaming = (payload.stream == true)
     local original_path = ngx.var.uri

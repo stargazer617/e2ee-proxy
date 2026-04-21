@@ -49,6 +49,10 @@ function _M.handle()
 
     -- Translate Responses request to OpenAI format
     local oai_request = resp_fmt.request_to_openai(resp_body)
+
+    -- Thinking mode handling (operates on OpenAI request format)
+    oai_request, model = e2ee.handle_thinking(oai_request)
+
     local oai_body = cjson.encode(oai_request)
 
     if not is_streaming then
