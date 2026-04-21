@@ -99,8 +99,12 @@ function _M.resolve_chute_id(model, api_key)
         return model
     end
 
-    -- Before lookup, strip suffix from model name
-    local base_model = model:match("^([^:]+)")
+    -- Strip the :THINKING suffix before map lookup. v1/models returns
+    -- base model IDs only; :THINKING is a proxy-side flag and must not
+    -- leak into the lookup key. Other suffixes (e.g. LoRA names) are
+    -- left intact so they surface as proper errors upstream rather than
+    -- silently resolving to the base chute.
+    local base_model = model:match("^(.-):THINKING$") or model
 
     local now = ngx.now()
 
